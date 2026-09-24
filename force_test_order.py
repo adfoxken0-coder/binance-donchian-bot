@@ -54,7 +54,7 @@ def build_fake_signal(client, symbol, direction):
     current_price = float(mark_price_data["markPrice"])
 
     stop_dist_ratio = 0.01  # 停損距離設為市價的1%,純測試用,跟正式策略的ATR停損無關
-    risk_usd = 2.0          # 跟正式策略一致,每筆風險固定2 USDT
+    risk_usd = 10.0         # 跟正式策略一致,每筆風險固定10 USDT
     rr_ratio = 1.5
 
     if direction == "long":
@@ -83,6 +83,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbol", required=True, choices=["BTCUSDT", "ETHUSDT"])
     parser.add_argument("--direction", required=True, choices=["long", "short"])
+    parser.add_argument("--yes", action="store_true",
+                         help="跳過手動輸入yes確認,用於GitHub Actions等非互動環境。"
+                              "get_client()仍會強制檢查BINANCE_TESTNET,不會因為這個參數而放寬安全限制。")
     args = parser.parse_args()
 
     client = get_client()
@@ -105,10 +108,13 @@ def main():
     balance = get_usdt_balance(client)
     print(f"目前測試網可用USDT餘額: {balance}")
 
-    confirm = input(f"\n即將在測試網對 {args.symbol} 下單({args.direction}),確定要繼續嗎?(輸入 yes 確認): ")
-    if confirm.strip().lower() != "yes":
-        print("已取消,沒有下單。")
-        return
+    if args.yes:
+        print(f"\n[--yes 模式] 已跳過手動確認,即將在測試網對 {args.symbol} 下單({args.direction})")
+    else:
+        confirm = input(f"\n即將在測試網對 {args.symbol} 下單({args.direction}),確定要繼續嗎?(輸入 yes 確認): ")
+        if confirm.strip().lower() != "yes":
+            print("已取消,沒有下單。")
+            return
 
     result = place_entry_with_sl_tp(client, args.symbol, fake_signal, balance)
     print(f"\n下單完成,結果摘要:")

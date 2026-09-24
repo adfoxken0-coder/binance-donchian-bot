@@ -21,6 +21,9 @@
 | `trade_stats.json` | 累計勝敗統計(獲利單數、虧損單數、累計淨損益) |
 | `.github/workflows/btc_daily.yml` | BTC日線策略的排程設定 |
 | `.github/workflows/eth_4h.yml` | ETH 4H策略的排程設定 |
+| `test_telegram.py` | 純粹測試Telegram通知有沒有送達,不涉及任何幣安操作 |
+| `.github/workflows/test_telegram.yml` | 手動觸發,測試Telegram通知設定是否正確 |
+| `.github/workflows/test_binance_order.yml` | 手動觸發,用假訊號在測試網真的下一次單,驗證整套下單流程 |
 
 ## 第一次使用前必做
 
@@ -119,7 +122,22 @@ GitHub Actions 每次執行都是全新的容器環境,程式執行完後,`risk_
 
 **BTC 跟 ETH 這兩個 workflow 共用這三個狀態檔案**(每日虧損上限、累計勝敗統計都是帳戶層級的,不分交易對;`position_tracker.json` 雖然是各自交易對獨立的欄位,但存在同一個檔案裡),所以兩者的並行控制群組(`concurrency.group`)設成一樣的名稱(`trading-bot-risk-state`),確保不會同時搶著 commit 造成衝突,寧可排隊晚幾分鐘執行,也不要冒衝突風險。
 
-### 5. 測試順序建議
+### 5. 兩個手動測試 workflow(不用打開CMD就能測)
+
+到 repo 的 **Actions** 頁面,左側會看到兩個獨立的測試用workflow,點進去、點 **Run workflow** 就能觸發:
+
+**Test Telegram Notification**
+- 純粹測試 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` 這兩個Secret設定是否正確
+- 不會碰任何幣安API,不會下單,執行完看Telegram有沒有收到測試訊息即可
+- 這個workflow沒有寫入權限(`permissions: contents: read`),不會修改任何狀態檔案
+
+**Test Binance Testnet Order**
+- 觸發時可以選擇要測試的 **交易對**(BTCUSDT/ETHUSDT)跟**方向**(long/short)
+- 用假造的訊號在測試網真的下一次單,驗證進場、槓桿計算、停損停利掛單的完整流程
+- **只能在測試網用**:腳本內部強制檢查 `BINANCE_TESTNET` 這組Secret必須是 `true`,不是的話會直接報錯拒絕執行,不會因為這個workflow而放寬「不能在正式環境亂測」的安全限制
+- 執行完會把 `risk_state.json` / `position_tracker.json` / `trade_stats.json` 的變化commit回repo,跟正式排程的行為一致
+
+### 6. 測試順序建議
 
 1. 先確認 Secrets 裡的 `BINANCE_TESTNET` 是 `true`
 2. 到 Actions 頁面,手動觸發 **BTC Daily Donchian Strategy**,看執行記錄(Logs)是否正常
