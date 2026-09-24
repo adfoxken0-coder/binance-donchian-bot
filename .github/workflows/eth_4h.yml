@@ -1,0 +1,47 @@
+name: ETH 4H Donchian Strategy
+
+on:
+  schedule:
+    # 每4小時執行一次(UTC 00:05, 04:05, 08:05, 12:05, 16:05, 20:05),對應4H K線收盤後留5分鐘緩衝
+    - cron: "5 0,4,8,12,16,20 * * *"
+  workflow_dispatch: {}   # 允許手動點擊執行,方便測試
+
+# 跟 BTC workflow 共用同一個並行控制群組,因為兩者共用 risk_state.json,
+# 避免兩個workflow同時觸發時,一起搶著commit同一個檔案造成衝突
+concurrency:
+  group: trading-bot-risk-state
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # 需要寫入權限,才能把 risk_state.json 的更新推回 repo
+
+jobs:
+  run-eth-strategy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ETH strategy
+        env:
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          BINANCE_TESTNET: ${{ secrets.BINANCE_TESTNET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main.py --symbol ETHUSDT --interval 4h
+
+      - name: Commit updated state files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add risk_state.json position_tracker.json trade_stats.json
+          git diff --staged --quiet || git commit -m "Update trading state [skip ci]"
+          git pull --rebase origin main
+          git push
