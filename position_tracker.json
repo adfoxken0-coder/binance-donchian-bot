@@ -1,1 +1,9 @@
-{}
+{
+  "BTCUSDT": {
+    "open": true,
+    "direction": "long",
+    "entry_price": 84389.5,
+    "qty": 0.011,
+    "opened_at_ms": 1790235749612
+  }
+}
