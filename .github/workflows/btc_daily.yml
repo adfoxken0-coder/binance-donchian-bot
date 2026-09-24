@@ -2,8 +2,9 @@ name: BTC Daily Donchian Strategy
 
 on:
   schedule:
-    # 每天 UTC 00:05 執行(對應台北時間 08:05,日線收盤後留5分鐘緩衝時間)
-    - cron: "5 0 * * *"
+    # 全天24小時、每20分鐘執行一次。策略本身仍然只看「最新一根已收盤的日線K棒」,
+    # 頻繁執行不會產生更多訊號,只是縮短K棒收盤到程式偵測到的延遲時間
+    - cron: "*/20 * * * *"
   workflow_dispatch: {}   # 允許手動點擊執行,方便測試
 
 # 跟 ETH workflow 共用同一個並行控制群組,因為兩者共用 risk_state.json,
