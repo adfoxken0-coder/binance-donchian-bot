@@ -7,7 +7,7 @@
     "opened_at_ms": 1790235749612
   },
   "ETHUSDT": {
-    "open": true,
+    "open": false,
     "direction": "short",
     "entry_price": 2610.19,
     "qty": 0.194,
