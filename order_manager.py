@@ -13,6 +13,21 @@ class QuantityTooSmallError(Exception):
     """
     pass
 
+
+class SignalStaleError(Exception):
+    """
+    訊號已過期:下單當下的標記價格已經貼近或越過這筆訊號的停損/停利價,
+    再進場會造成「掛單瞬間觸發」(幣安錯誤 -2021),所以直接放棄這筆訊號,不進場。
+    """
+    pass
+
+
+class ProtectionOrderError(Exception):
+    """
+    市價單已成交,但停損/停利單掛失敗。程式已經嘗試自動把倉位平掉,避免留下沒有保護的裸倉。
+    """
+    pass
+
 # 幣安對每個交易對的數量/價格精度不同。這裡先列出BTC/ETH常見精度方便先跑起來,
 # 正式使用前建議改成呼叫 client.get_exchange_info() 動態抓取,避免幣安調整精度規則後程式跟不上
 SYMBOL_PRECISION = {
@@ -62,6 +77,24 @@ def place_entry_with_sl_tp(client: BinanceFuturesClient, symbol: str, signal: di
             f"低於 {symbol} 最小下單量 {min_step}(可能是這次止損距離偏寬,超出目前風險預算能覆蓋的範圍)"
         )
 
+    stop_price = round_step(signal["stop_price"], price_p)
+    target_price = round_step(signal["target_price"], price_p)
+
+    # 下單前價格檢查:標記價格必須還在「停損與停利之間」,且離兩端各保留一點緩衝,
+    # 否則條件單會在掛單瞬間觸發(-2021),所以先擋掉,不要讓市價單先成交了才發現
+    mark_price = float(client.get_mark_price(symbol)["markPrice"])
+    stop_dist = abs(signal["entry_price"] - signal["stop_price"])
+    buffer = 0.05 * stop_dist
+    if signal["direction"] == "long":
+        price_ok = (stop_price + buffer) < mark_price < (target_price - buffer)
+    else:
+        price_ok = (target_price + buffer) < mark_price < (stop_price - buffer)
+    if not price_ok:
+        raise SignalStaleError(
+            f"目前標記價 {mark_price} 已貼近或越過這筆訊號的停損 {stop_price} / 停利 {target_price},"
+            f"訊號視為過期,不進場"
+        )
+
     leverage = calc_leverage(signal["entry_price"], qty, account_balance)
     client.set_leverage(symbol, leverage)
 
@@ -73,22 +106,35 @@ def place_entry_with_sl_tp(client: BinanceFuturesClient, symbol: str, signal: di
         symbol=symbol, side=entry_side, order_type="MARKET", quantity=qty,
     )
 
-    stop_price = round_step(signal["stop_price"], price_p)
-    target_price = round_step(signal["target_price"], price_p)
-
-    # 2. 停損單(STOP_MARKET,觸價後市價全部平倉)
+    # 2+3. 停損單 / 停利單(觸價後市價全部平倉)
     # 注意:幣安2025年12月起,條件單(STOP_MARKET/TAKE_PROFIT_MARKET)必須改用
     # Algo Order API(new_algo_order),舊的 new_order 端點會回傳錯誤代碼 -4120
-    stop_order = client.new_algo_order(
-        symbol=symbol, side=exit_side, order_type="STOP_MARKET",
-        trigger_price=stop_price, close_position=True,
-    )
-
-    # 3. 停利單(TAKE_PROFIT_MARKET,觸價後市價全部平倉)
-    tp_order = client.new_algo_order(
-        symbol=symbol, side=exit_side, order_type="TAKE_PROFIT_MARKET",
-        trigger_price=target_price, close_position=True,
-    )
+    # 若任何一張掛失敗:市價單已經成交,絕不能留下沒有保護的倉位 -> 撤掉已掛的條件單並立刻反向平倉
+    try:
+        stop_order = client.new_algo_order(
+            symbol=symbol, side=exit_side, order_type="STOP_MARKET",
+            trigger_price=stop_price, close_position=True,
+        )
+        tp_order = client.new_algo_order(
+            symbol=symbol, side=exit_side, order_type="TAKE_PROFIT_MARKET",
+            trigger_price=target_price, close_position=True,
+        )
+    except Exception as protect_err:
+        close_msg = "已自動平倉"
+        try:
+            try:
+                client.cancel_all_algo_open_orders(symbol)
+            except Exception:
+                pass
+            client.new_order(
+                symbol=symbol, side=exit_side, order_type="MARKET",
+                quantity=qty, reduce_only=True,
+            )
+        except Exception as close_err:
+            close_msg = f"自動平倉也失敗({close_err}),請立刻手動檢查並處理 {symbol} 倉位!"
+        raise ProtectionOrderError(
+            f"停損/停利單掛單失敗({protect_err});{close_msg}"
+        ) from protect_err
 
     return {
         "symbol": symbol,

@@ -12,14 +12,20 @@
     BINANCE_TESTNET       "true" 或 "false",預設 true(測試網),務必確認清楚目前是哪個環境
 """
 import os
+import time
 import argparse
 
 from binance_futures_client import BinanceFuturesClient
 from strategy import compute_signal, BTC_PARAMS, ETH_PARAMS
-from order_manager import place_entry_with_sl_tp, QuantityTooSmallError
+from order_manager import (
+    place_entry_with_sl_tp, QuantityTooSmallError, SignalStaleError, ProtectionOrderError,
+)
 import risk_manager
 import trade_tracker
 import notifier
+
+# 訊號所屬K線收盤後超過這個分鐘數就不再進場(排程每20分鐘一次,留10分鐘給GitHub排程延遲)
+MAX_SIGNAL_AGE_MIN = 30
 
 SYMBOL_PARAMS = {
     "BTCUSDT": BTC_PARAMS,
@@ -92,9 +98,24 @@ def run(args):
 
     print(f"偵測到訊號: {signal}")
 
+    # ---- 訊號新鮮度檢查:排程每20分鐘跑一次,但同一根已收盤K線的訊號會一直被看到 ----
+    # 策略是「K線收盤後立刻進場」,所以只接受剛收盤不久的訊號;太久以前的訊號價格早就跑掉了
+    signal_candle_open_ms = closed_klines[-1][0]
+    signal_candle_close_ms = closed_klines[-1][6]
+    age_min = (time.time() * 1000 - signal_candle_close_ms) / 60000
+    if age_min > MAX_SIGNAL_AGE_MIN:
+        print(f"訊號所屬K線已收盤 {age_min:.0f} 分鐘(> {MAX_SIGNAL_AGE_MIN} 分鐘),視為過期,不進場。")
+        return
+
+    # 同一根K線的訊號只處理一次(避免20分鐘後重複看到同一個訊號而重複進場)
+    if trade_tracker.signal_already_handled(args.symbol, signal_candle_open_ms):
+        print("這根K線的訊號已經處理過了,跳過。")
+        return
+
     # ---- 風控檢查二:同一交易對限制單一倉位(BTC跟ETH各自獨立計算) ----
     if currently_has_position:
         print(f"目前 {args.symbol} 已有持倉,依照風控規則跳過本次進場(同一交易對僅允許一筆倉位)。")
+        trade_tracker.mark_signal_handled(args.symbol, signal_candle_open_ms)
         return
 
     if args.dry_run:
@@ -104,13 +125,21 @@ def run(args):
     balance = get_usdt_balance(client)
     print(f"目前可用USDT餘額: {balance}")
 
+    # 從這裡開始,不管結果如何,這根K線的訊號都算「已處理」,不再重試
+    trade_tracker.mark_signal_handled(args.symbol, signal_candle_open_ms)
+
     try:
         result = place_entry_with_sl_tp(client, args.symbol, signal, balance)
-    except QuantityTooSmallError as e:
-        # 這不是程式錯誤,是正常的市場情況(止損距離太寬導致部位低於最小下單量),
-        # 優雅跳過,用平靜語氣通知,不要當成程式錯誤驚動人
+    except (QuantityTooSmallError, SignalStaleError) as e:
+        # 這不是程式錯誤,是正常的市場情況(止損距離太寬導致部位低於最小下單量,
+        # 或下單當下價格已經貼近/越過停損停利),優雅跳過,用平靜語氣通知
         print(f"[跳過] {e}")
         notifier.notify_signal_skipped(args.symbol, str(e))
+        return
+    except ProtectionOrderError as e:
+        # 市價單成交後停損/停利掛單失敗,order_manager 已嘗試自動平倉,這是需要人看一眼的真問題
+        print(f"[嚴重] {e}")
+        notifier.notify_error(args.symbol, str(e))
         return
 
     print(f"下單完成: {result}")

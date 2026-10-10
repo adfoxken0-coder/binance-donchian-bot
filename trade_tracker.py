@@ -43,6 +43,21 @@ def record_entry(symbol, direction, entry_price, qty):
     _save(POSITION_FILE, tracker)
 
 
+SIGNAL_KEY = "_last_signal_candle"
+
+
+def signal_already_handled(symbol, candle_open_ms):
+    """同一根K線的訊號只處理一次:排程每20分鐘跑一次,同一根已收盤K線會被重複看到"""
+    tracker = _load(POSITION_FILE, {})
+    return tracker.get(SIGNAL_KEY, {}).get(symbol) == candle_open_ms
+
+
+def mark_signal_handled(symbol, candle_open_ms):
+    tracker = _load(POSITION_FILE, {})
+    tracker.setdefault(SIGNAL_KEY, {})[symbol] = candle_open_ms
+    _save(POSITION_FILE, tracker)
+
+
 def check_closed_trade(client, symbol, currently_has_position):
     """
     比對記錄的開倉狀態跟目前實際持倉狀態,判斷這個交易對是否有一筆倉位
