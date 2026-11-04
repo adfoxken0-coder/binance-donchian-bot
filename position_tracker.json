@@ -14,6 +14,7 @@
     "opened_at_ms": 1791461705755
   },
   "_last_nosignal_candle": {
-    "ETHUSDT": 1793779200000
+    "ETHUSDT": 1793779200000,
+    "BTCUSDT": 1793664000000
   }
 }
