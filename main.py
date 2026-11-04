@@ -14,9 +14,10 @@
 import os
 import time
 import argparse
+from datetime import datetime, timezone, timedelta
 
 from binance_futures_client import BinanceFuturesClient
-from strategy import compute_signal, BTC_PARAMS, ETH_PARAMS
+from strategy import compute_signal, describe_market, BTC_PARAMS, ETH_PARAMS
 from order_manager import (
     place_entry_with_sl_tp, QuantityTooSmallError, SignalStaleError, ProtectionOrderError,
 )
@@ -26,6 +27,8 @@ import notifier
 
 # 訊號所屬K線收盤後超過這個分鐘數就不再進場(排程每20分鐘一次,留10分鐘給GitHub排程延遲)
 MAX_SIGNAL_AGE_MIN = 30
+
+TAIPEI_TZ = timezone(timedelta(hours=8))
 
 SYMBOL_PARAMS = {
     "BTCUSDT": BTC_PARAMS,
@@ -94,6 +97,15 @@ def run(args):
 
     if signal is None:
         print("本次沒有符合條件的突破訊號,結束。")
+        # 每根已收盤K線只通知一次「沒有行情」(BTC日線=每天1則,ETH 4H=每天6則)
+        last_open_ms = closed_klines[-1][0]
+        if not args.dry_run and not trade_tracker.no_signal_already_reported(args.symbol, last_open_ms):
+            close_dt = datetime.fromtimestamp((closed_klines[-1][6] + 1) / 1000, TAIPEI_TZ)
+            notifier.notify_no_signal(
+                args.symbol, args.interval, close_dt.strftime("%Y-%m-%d %H:%M"),
+                describe_market(closed_klines, params),
+            )
+            trade_tracker.mark_no_signal_reported(args.symbol, last_open_ms)
         return
 
     print(f"偵測到訊號: {signal}")

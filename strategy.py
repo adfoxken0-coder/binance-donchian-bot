@@ -79,6 +79,30 @@ def parse_klines(raw_klines):
     return highs, lows, closes, volumes
 
 
+def describe_market(raw_klines, params: StrategyParams):
+    """
+    「沒有訊號」通知用:回傳最新一根已收盤K線的各項指標數值,讓你一眼看出離突破還有多遠。
+    資料不足時回傳 None。不影響任何交易判斷。
+    """
+    highs, lows, closes, volumes = parse_klines(raw_klines)
+    n = len(closes)
+    if n < max(params.donchian_len + 2, params.trend_ema + 2, params.vol_ma_len + 2):
+        return None
+
+    idx = n - 1
+    ema_now = _ema(closes, params.trend_ema)[idx]
+    vol_ma_now = _sma(volumes, params.vol_ma_len)[idx]
+    return {
+        "close": closes[idx],
+        "donchian_high": max(highs[idx - params.donchian_len:idx]),
+        "donchian_low": min(lows[idx - params.donchian_len:idx]),
+        "ema": ema_now,
+        "above_ema": closes[idx] > ema_now,
+        "vol_ratio": volumes[idx] / vol_ma_now if vol_ma_now else 0.0,
+        "vol_need": params.vol_mult,
+    }
+
+
 def compute_signal(raw_klines, params: StrategyParams):
     """
     輸入:raw_klines 必須是「已收盤」的K線陣列(呼叫端要自行拿掉最後一根還在跑的K線)

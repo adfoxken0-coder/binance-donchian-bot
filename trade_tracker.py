@@ -58,6 +58,21 @@ def mark_signal_handled(symbol, candle_open_ms):
     _save(POSITION_FILE, tracker)
 
 
+NO_SIGNAL_KEY = "_last_nosignal_candle"
+
+
+def no_signal_already_reported(symbol, candle_open_ms):
+    """同一根K線的「沒有行情」通知只發一次(排程每20分鐘跑一次,不能每次都發)"""
+    tracker = _load(POSITION_FILE, {})
+    return tracker.get(NO_SIGNAL_KEY, {}).get(symbol) == candle_open_ms
+
+
+def mark_no_signal_reported(symbol, candle_open_ms):
+    tracker = _load(POSITION_FILE, {})
+    tracker.setdefault(NO_SIGNAL_KEY, {})[symbol] = candle_open_ms
+    _save(POSITION_FILE, tracker)
+
+
 def check_closed_trade(client, symbol, currently_has_position):
     """
     比對記錄的開倉狀態跟目前實際持倉狀態,判斷這個交易對是否有一筆倉位

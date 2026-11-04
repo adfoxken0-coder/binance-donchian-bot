@@ -95,6 +95,26 @@ def notify_signal_skipped(symbol, reason):
     send_telegram_message(text)
 
 
+def notify_no_signal(symbol, interval, candle_close_str, status):
+    """
+    「這根K線收盤後沒有進場訊號」的通知(每根K線只發一次,不會每20分鐘洗版)
+    """
+    lines = [
+        "📭 本次沒有行情(無進場訊號)",
+        f"商品:{symbol}({interval})",
+        f"K線收盤:{candle_close_str}(台北時間)",
+    ]
+    if status:
+        trend = "在EMA200之上(只看多)" if status["above_ema"] else "在EMA200之下(只看空)"
+        lines += [
+            f"收盤價:{status['close']:.2f}",
+            f"突破區間:{status['donchian_low']:.2f} ~ {status['donchian_high']:.2f}",
+            f"趨勢:{trend}",
+            f"量能:{status['vol_ratio']:.2f}倍均量(需 > {status['vol_need']}倍)",
+        ]
+    send_telegram_message("\n".join(lines))
+
+
 def notify_error(symbol, error_message):
     text = (
         f"⚠️ 自動交易程式發生錯誤\n"
