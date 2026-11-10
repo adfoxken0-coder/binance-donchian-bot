@@ -7,14 +7,17 @@
     "opened_at_ms": 1790235749612
   },
   "ETHUSDT": {
-    "open": false,
+    "open": true,
     "direction": "short",
-    "entry_price": 2536.3,
-    "qty": 0.188,
-    "opened_at_ms": 1791461705755
+    "entry_price": 2022.21,
+    "qty": 0.144,
+    "opened_at_ms": 1794327704479
   },
   "_last_nosignal_candle": {
     "ETHUSDT": 1794268800000,
     "BTCUSDT": 1794096000000
+  },
+  "_last_signal_candle": {
+    "ETHUSDT": 1794312000000
   }
 }
