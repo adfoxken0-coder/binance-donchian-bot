@@ -104,6 +104,7 @@ def run(args):
             notifier.notify_no_signal(
                 args.symbol, args.interval, close_dt.strftime("%Y-%m-%d %H:%M"),
                 describe_market(closed_klines, params),
+                trade_tracker.get_stats_summary(),
             )
             trade_tracker.mark_no_signal_reported(args.symbol, last_open_ms)
         return

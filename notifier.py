@@ -45,6 +45,8 @@ def notify_order_placed(result):
 def _format_r(value):
     """把R值格式化成好讀的字串,整數就不顯示小數(例如 +1R),否則去掉多餘的尾端0(例如 +1.5R 而不是 +1.50R)"""
     rounded = round(value, 2)
+    if rounded == 0:
+        return "0R"
     if abs(rounded - round(rounded)) < 1e-9:
         return f"{rounded:+.0f}R"
     text = f"{rounded:+.2f}".rstrip("0").rstrip(".")
@@ -95,7 +97,7 @@ def notify_signal_skipped(symbol, reason):
     send_telegram_message(text)
 
 
-def notify_no_signal(symbol, interval, candle_close_str, status):
+def notify_no_signal(symbol, interval, candle_close_str, status, stats=None):
     """
     「這根K線收盤後沒有進場訊號」的通知(每根K線只發一次,不會每20分鐘洗版)
     """
@@ -105,13 +107,49 @@ def notify_no_signal(symbol, interval, candle_close_str, status):
         f"K線收盤:{candle_close_str}(台北時間)",
     ]
     if status:
-        trend = "在EMA200之上(只看多)" if status["above_ema"] else "在EMA200之下(只看空)"
+        close, hi, lo = status["close"], status["donchian_high"], status["donchian_low"]
+        above = status["above_ema"]
+
+        # ① 突破:要「剛」突破才算(前一根還在通道內,這根收盤才跑出去)
+        if status["fresh_up"]:
+            breakout = f"✅ 剛突破上緣 {hi:.2f}"
+        elif status["fresh_down"]:
+            breakout = f"✅ 剛跌破下緣 {lo:.2f}"
+        elif status["beyond_up"]:
+            breakout = "❌ 價格在上緣之上,但前一根就已突破,不算新突破"
+        elif status["beyond_down"]:
+            breakout = "❌ 價格在下緣之下,但前一根就已跌破,不算新突破"
+        else:
+            up_gap = (hi - close) / close * 100
+            down_gap = (close - lo) / close * 100
+            breakout = f"❌ 離上緣還差 {up_gap:.1f}%、離下緣還差 {down_gap:.1f}%"
+
+        # ② 趨勢:有突破方向就檢查方向是否被EMA200允許,沒有突破就只顯示目前只允許哪一邊
+        if status["fresh_up"] or status["beyond_up"]:
+            trend = ("✅ 在EMA200之上,允許做多" if above else "❌ 在EMA200之下,不允許做多")
+        elif status["fresh_down"] or status["beyond_down"]:
+            trend = ("✅ 在EMA200之下,允許做空" if not above else "❌ 在EMA200之上,不允許做空")
+        else:
+            trend = "✅ 在EMA200之上(只允許做多)" if above else "✅ 在EMA200之下(只允許做空)"
+
+        # ③ 量能
+        vol_ok = status["vol_ratio"] > status["vol_need"]
+        volume = (f"{'✅' if vol_ok else '❌'} {status['vol_ratio']:.2f}倍均量"
+                  f"(需 > {status['vol_need']}倍)")
+
         lines += [
-            f"收盤價:{status['close']:.2f}",
-            f"突破區間:{status['donchian_low']:.2f} ~ {status['donchian_high']:.2f}",
-            f"趨勢:{trend}",
-            f"量能:{status['vol_ratio']:.2f}倍均量(需 > {status['vol_need']}倍)",
+            f"收盤價:{close:.2f}",
+            f"突破區間:{lo:.2f} ~ {hi:.2f}",
+            "—— 進場條件(三項都要 ✅)——",
+            f"① 突破:{breakout}",
+            f"② 趨勢:{trend}",
+            f"③ 量能:{volume}",
         ]
+    if stats:
+        lines.append(
+            f"目前收益:{_format_r(stats['total_r'])}({stats['total_pnl']:+.2f})U "
+            f"盈:{stats['win_count']}單 虧:{stats['loss_count']}單"
+        )
     send_telegram_message("\n".join(lines))
 
 

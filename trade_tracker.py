@@ -58,6 +58,18 @@ def mark_signal_handled(symbol, candle_open_ms):
     _save(POSITION_FILE, tracker)
 
 
+def get_stats_summary():
+    """讀取目前累計成績(給「沒有行情」通知用):勝負單數、累計損益、累計R值"""
+    stats = _load(STATS_FILE, {})
+    total_pnl = stats.get("total_pnl", 0.0)
+    return {
+        "win_count": stats.get("win_count", 0),
+        "loss_count": stats.get("loss_count", 0),
+        "total_pnl": total_pnl,
+        "total_r": total_pnl / R_UNIT_USD,
+    }
+
+
 NO_SIGNAL_KEY = "_last_nosignal_candle"
 
 

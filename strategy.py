@@ -92,14 +92,25 @@ def describe_market(raw_klines, params: StrategyParams):
     idx = n - 1
     ema_now = _ema(closes, params.trend_ema)[idx]
     vol_ma_now = _sma(volumes, params.vol_ma_len)[idx]
+    close_now = closes[idx]
+    d_high = max(highs[idx - params.donchian_len:idx])
+    d_low = min(lows[idx - params.donchian_len:idx])
+    # 前一根的通道(判斷「剛突破」用,邏輯跟 compute_signal 一致)
+    prev_close = closes[idx - 1]
+    prev_high = max(highs[idx - 1 - params.donchian_len:idx - 1])
+    prev_low = min(lows[idx - 1 - params.donchian_len:idx - 1])
     return {
-        "close": closes[idx],
-        "donchian_high": max(highs[idx - params.donchian_len:idx]),
-        "donchian_low": min(lows[idx - params.donchian_len:idx]),
+        "close": close_now,
+        "donchian_high": d_high,
+        "donchian_low": d_low,
         "ema": ema_now,
-        "above_ema": closes[idx] > ema_now,
+        "above_ema": close_now > ema_now,
         "vol_ratio": volumes[idx] / vol_ma_now if vol_ma_now else 0.0,
         "vol_need": params.vol_mult,
+        "beyond_up": close_now > d_high,       # 收盤價在上緣之上
+        "beyond_down": close_now < d_low,      # 收盤價在下緣之下
+        "fresh_up": prev_close <= prev_high and close_now > d_high,    # 「剛」突破上緣
+        "fresh_down": prev_close >= prev_low and close_now < d_low,    # 「剛」跌破下緣
     }
 
 
